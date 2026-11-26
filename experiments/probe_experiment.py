@@ -221,9 +221,15 @@ def _write_svg(results: list[Measurement]) -> Path:
                 f'<circle cx="{x:.2f}" cy="{y:.2f}" r="2.5" fill="{color}"/>'
             )
 
-    legend_xs = (left + 20, left + 430, left + 20, left + 430)
-    legend_ys = (height - 76, height - 76, height - 52, height - 52)
-    for (label, color, attribute), x, y in zip(series, legend_xs, legend_ys):
+    legend_left = left + 26
+    legend_top = top + 31
+    elements.append(
+        f'<rect x="{legend_left - 12}" y="{legend_top - 20}" width="342" '
+        'height="100" rx="4" fill="white" fill-opacity="0.92" stroke="#cccccc"/>'
+    )
+    for index, (label, color, attribute) in enumerate(series):
+        x = legend_left
+        y = legend_top + index * 24
         dash = ' stroke-dasharray="6 4"' if attribute.endswith("_theory") else ""
         elements.append(
             f'<line x1="{x}" y1="{y}" x2="{x + 24}" y2="{y}" '
