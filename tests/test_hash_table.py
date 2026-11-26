@@ -109,6 +109,32 @@ class HashTableTests(unittest.TestCase):
         table.delete("other")
         self.assertEqual(table.last_comparisons, comparisons)
 
+    def test_failed_get_in_nonempty_bucket_records_comparisons(self):
+        table = HashTable(bucket_count=8, max_load=None)
+        for key in ("a", "i", "q"):
+            table.set(key, key)
+
+        with self.assertRaises(KeyError):
+            table.get("y")
+        self.assertEqual(table.last_comparisons, 3)
+
+    def test_delete_from_colliding_chain_keeps_other_keys(self):
+        keys = ("a", "i", "q")
+        for deleted in keys:
+            with self.subTest(deleted=deleted):
+                table = HashTable(bucket_count=8, max_load=None)
+                for key in keys:
+                    table.set(key, key)
+
+                table.delete(deleted)
+
+                with self.assertRaises(KeyError):
+                    table.get(deleted)
+                for key in keys:
+                    if key != deleted:
+                        self.assertEqual(table.get(key), key)
+                self.assertEqual(len(table), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

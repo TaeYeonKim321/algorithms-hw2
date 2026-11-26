@@ -74,6 +74,13 @@ class URLShortenerTests(unittest.TestCase):
 
         self.assertEqual(self.shortener.expand(code), url)
 
+    def test_http_scheme_is_accepted(self):
+        url = "http://example.com"
+
+        code = self.shortener.shorten(url)
+
+        self.assertEqual(self.shortener.expand(code), url)
+
 
 if __name__ == "__main__":
     unittest.main()
