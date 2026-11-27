@@ -110,6 +110,77 @@ class ServerTests(unittest.TestCase):
         status, _, _ = self.request("GET", "/not-registered")
         self.assertEqual(status, 404)
 
+    def test_linear_home_page_contains_linear_form(self):
+        status, _, body = self.request("GET", "/linear")
+
+        self.assertEqual(status, 200)
+        self.assertIn(b'<form action="/linear/shorten" method="post">', body)
+        self.assertIn(b'name="url"', body)
+
+    def test_linear_form_result_redirects_and_unknown_code_is_not_found(self):
+        url = "https://example.com/linear?query=value"
+        body = urlencode({"url": url})
+        status, _, response_body = self.request(
+            "POST",
+            "/linear/shorten",
+            body=body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertIn(b"http://127.0.0.1:", response_body)
+        self.assertIn(b"/linear/s/0", response_body)
+
+        status, headers, _ = self.request("GET", "/linear/s/0")
+        self.assertEqual(status, 302)
+        self.assertEqual(headers["Location"], url)
+
+        status, _, _ = self.request("GET", "/linear/s/unregistered")
+        self.assertEqual(status, 404)
+
+    def test_linear_table_shows_every_slot_and_stored_url(self):
+        url = "https://example.com/linear/table"
+        self.request(
+            "POST",
+            "/linear/shorten",
+            body=urlencode({"url": url}),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
+        status, _, body = self.request("GET", "/linear/table")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body.count(b'<th scope="row">'), 8)
+        self.assertIn(url.encode(), body)
+        self.assertIn(b"<details>", body)
+        self.assertIn(b"Horner hash", body)
+        self.assertIn(b"ord(", body)
+
+    def test_chaining_and_linear_short_codes_are_isolated(self):
+        chaining_url = "https://example.com/chaining"
+        linear_url = "https://example.com/linear"
+        self.request(
+            "POST",
+            "/shorten",
+            body=urlencode({"url": chaining_url}),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        self.request(
+            "POST",
+            "/linear/shorten",
+            body=urlencode({"url": linear_url}),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
+        status, headers, _ = self.request("GET", "/0")
+        self.assertEqual(status, 302)
+        self.assertEqual(headers["Location"], chaining_url)
+        status, headers, _ = self.request("GET", "/linear/s/0")
+        self.assertEqual(status, 302)
+        self.assertEqual(headers["Location"], linear_url)
+
+        self.assertEqual(self.request("GET", "/linear/s/1")[0], 404)
+
 
 if __name__ == "__main__":
     unittest.main()
