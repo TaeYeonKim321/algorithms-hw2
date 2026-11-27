@@ -153,7 +153,7 @@ def _measurements() -> list[Measurement]:
 
 
 def _write_csv(results: list[Measurement]) -> Path:
-    path = RESULTS_DIR / "results.csv"
+    path = RESULTS_DIR / "compare_results.csv"
     path.parent.mkdir(parents=True, exist_ok=True)
     headers = (
         "target_alpha",
@@ -193,7 +193,7 @@ def _write_csv(results: list[Measurement]) -> Path:
 
 
 def _write_svg(results: list[Measurement]) -> Path:
-    path = RESULTS_DIR / "results.svg"
+    path = RESULTS_DIR / "compare_results.svg"
     path.parent.mkdir(parents=True, exist_ok=True)
     width, height = 1000, 620
     left, right, top, bottom = 82, 32, 48, 125
