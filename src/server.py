@@ -12,6 +12,7 @@ from urllib.parse import parse_qsl, urlsplit
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from src.linear_probing_hash_table import LinearProbingHashTable, _Entry, _TOMBSTONE
 from src.shortener import URLShortener
 
 
@@ -35,6 +36,9 @@ def _page(title: str, content: str) -> str:
         ".error{color:#a00}"
         "code{overflow-wrap:anywhere}"
         "</style></head><body>"
+        '<nav><a href="/">Home</a> | <a href="/table">Hash table</a> | '
+        '<a href="/linear">Linear probing</a> | '
+        '<a href="/linear/table">Linear table</a></nav>'
         f"<h1>{safe_title}</h1>{content}</body></html>"
     )
 
@@ -48,6 +52,7 @@ class ShortenerHTTPServer(HTTPServer):
         shortener: URLShortener | None = None,
     ):
         self.shortener = shortener if shortener is not None else URLShortener()
+        self.linear_shortener = URLShortener(table_type="linear")
         super().__init__(server_address, ShortenerRequestHandler)
 
 
@@ -59,19 +64,38 @@ class ShortenerRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlsplit(self.path).path
         if path == "/":
-            content = (
-                "<p>Enter an absolute HTTP or HTTPS URL to shorten.</p>"
-                '<form action="/shorten" method="post">'
-                '<label for="url">URL</label><br>'
-                '<input id="url" name="url" type="url" maxlength="2048" required>'
-                '<br><button type="submit">Shorten</button></form>'
-                '<p><a href="/table">View hash table</a></p>'
-            )
-            self._send_html(200, _page("URL shortener", content))
+            self._send_html(200, _page("URL shortener", self._form_content(False)))
             return
 
         if path == "/table":
             self._send_html(200, _page("Hash table", self._table_content()))
+            return
+
+        if path == "/linear":
+            self._send_html(
+                200,
+                _page("Linear probing URL shortener", self._form_content(True)),
+            )
+            return
+
+        if path == "/linear/table":
+            self._send_html(
+                200,
+                _page("Linear probing table", self._linear_table_content()),
+            )
+            return
+
+        if path.startswith("/linear/s/"):
+            code = path.removeprefix("/linear/s/")
+            if not code or "/" in code:
+                self._send_html(404, _page("Not found", "<p>Short link not found.</p>"))
+                return
+            try:
+                url = self.server.linear_shortener.expand(code)
+            except (KeyError, ValueError):
+                self._send_html(404, _page("Not found", "<p>Short link not found.</p>"))
+                return
+            self._send_redirect(url)
             return
 
         code = path.removeprefix("/")
@@ -81,19 +105,25 @@ class ShortenerRequestHandler(BaseHTTPRequestHandler):
             except (KeyError, ValueError):
                 self._send_html(404, _page("Not found", "<p>Short link not found.</p>"))
                 return
-            self.send_response(302)
-            self.send_header("Location", url)
-            self.send_header("Content-Length", "0")
-            self.end_headers()
+            self._send_redirect(url)
             return
 
         self._send_html(404, _page("Not found", "<p>Page not found.</p>"))
 
     def do_POST(self) -> None:
-        if urlsplit(self.path).path != "/shorten":
+        path = urlsplit(self.path).path
+        if path == "/shorten":
+            linear = False
+        elif path == "/linear/shorten":
+            linear = True
+        else:
             self._send_html(404, _page("Not found", "<p>Page not found.</p>"))
             return
 
+        shortener = (
+            self.server.linear_shortener if linear else self.server.shortener
+        )
+        home_path = "/linear" if linear else "/"
         content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip()
         is_json = content_type == "application/json"
         try:
@@ -108,14 +138,14 @@ class ShortenerRequestHandler(BaseHTTPRequestHandler):
                     _page("Unsupported media type", "<p>Use a URL form or JSON request.</p>"),
                 )
                 return
-            code = self.server.shortener.shorten(url)
+            code = shortener.shorten(url)
         except _ResponseSent:
             return
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
-            self._send_submission_error(str(error), is_json)
+            self._send_submission_error(str(error), is_json, home_path)
             return
 
-        short_url = self._short_url(code)
+        short_url = self._short_url(code, linear)
         if is_json:
             self._send_json(200, {"code": code, "short_url": short_url})
             return
@@ -124,9 +154,26 @@ class ShortenerRequestHandler(BaseHTTPRequestHandler):
         content = (
             '<p>Your short link is ready:</p>'
             f'<p><a href="{safe_url}">{html.escape(short_url)}</a></p>'
-            '<p><a href="/">Shorten another URL</a></p>'
+            f'<p><a href="{home_path}">Shorten another URL</a></p>'
         )
         self._send_html(200, _page("Short URL created", content))
+
+    @staticmethod
+    def _form_content(linear: bool) -> str:
+        action = "/linear/shorten" if linear else "/shorten"
+        return (
+            "<p>Enter an absolute HTTP or HTTPS URL to shorten.</p>"
+            f'<form action="{action}" method="post">'
+            '<label for="url">URL</label><br>'
+            '<input id="url" name="url" type="url" maxlength="2048" required>'
+            '<br><button type="submit">Shorten</button></form>'
+        )
+
+    def _send_redirect(self, url: str) -> None:
+        self.send_response(302)
+        self.send_header("Location", url)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _read_body(self) -> bytes:
         raw_length = self.headers.get("Content-Length")
@@ -158,18 +205,23 @@ class ShortenerRequestHandler(BaseHTTPRequestHandler):
             raise ValueError('Form must contain exactly one "url" field')
         return urls[0]
 
-    def _send_submission_error(self, message: str, is_json: bool) -> None:
+    def _send_submission_error(
+        self,
+        message: str,
+        is_json: bool,
+        home_path: str = "/",
+    ) -> None:
         if is_json:
             self._send_json(400, {"error": message})
             return
         safe_message = html.escape(message)
         content = (
             f'<p class="error">{safe_message}</p>'
-            '<p><a href="/">Try again</a></p>'
+            f'<p><a href="{home_path}">Try again</a></p>'
         )
         self._send_html(400, _page("Could not shorten URL", content))
 
-    def _short_url(self, code: str) -> str:
+    def _short_url(self, code: str, linear: bool = False) -> str:
         scheme = self.headers.get("X-Forwarded-Proto", "http").split(",", 1)[0].strip()
         if scheme.lower() not in ("http", "https"):
             scheme = "http"
@@ -177,7 +229,8 @@ class ShortenerRequestHandler(BaseHTTPRequestHandler):
         if not host:
             address, port = self.server.server_address[:2]
             host = f"{address}:{port}"
-        return f"{scheme}://{host}/{code}"
+        path = f"/linear/s/{code}" if linear else f"/{code}"
+        return f"{scheme}://{host}{path}"
 
     def _table_content(self) -> str:
         table = self.server.shortener._url_to_code
@@ -211,6 +264,89 @@ class ShortenerRequestHandler(BaseHTTPRequestHandler):
             "<table><thead><tr><th>Bucket</th><th>Linked list</th></tr></thead>"
             f"<tbody>{''.join(rows)}</tbody></table>"
             '<p><a href="/">Back to URL shortener</a></p>'
+        )
+
+    def _linear_table_content(self) -> str:
+        table = self.server.linear_shortener._url_to_code
+        rows = []
+        for index, slot in enumerate(table._slots):
+            if slot is None:
+                content = "<span>비어 있음</span>"
+            elif slot is _TOMBSTONE:
+                content = "<span>삭제 표시</span>"
+            elif isinstance(slot, _Entry):
+                short_url = self._short_url(slot.value, linear=True)
+                safe_url = html.escape(slot.key)
+                safe_code = html.escape(slot.value)
+                safe_short_url = html.escape(short_url, quote=True)
+                details = self._linear_probe_details(slot.key, table)
+                content = (
+                    '<span class="chain-node">'
+                    f"<strong>URL:</strong> <code>{safe_url}</code><br>"
+                    f"<strong>Code:</strong> <code>{safe_code}</code><br>"
+                    f'<strong>Short link:</strong> <a href="{safe_short_url}">'
+                    f"{html.escape(short_url)}</a><br>{details}</span>"
+                )
+            else:
+                raise RuntimeError("linear probing table contains an unknown slot")
+            rows.append(
+                f'<tr><th scope="row">{index}</th><td>{content}</td></tr>'
+            )
+        return (
+            "<p>Linear probing slots in index order.</p>"
+            "<table><thead><tr><th>Slot</th><th>State / item</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table>"
+            '<p><a href="/linear">Back to linear probing</a></p>'
+        )
+
+    @staticmethod
+    def _linear_probe_details(
+        key: str,
+        table: LinearProbingHashTable[str],
+    ) -> str:
+        value = 0
+        hash_steps = ["<li>Start with h = 0.</li>"]
+        for character in key:
+            next_value = (value * 31 + ord(character)) % table.bucket_count
+            hash_steps.append(
+                "<li>"
+                f"h = ({value} &times; 31 + ord({html.escape(repr(character))})) "
+                f"mod {table.bucket_count} = {next_value}</li>"
+            )
+            value = next_value
+
+        checked = []
+        found_index = None
+        for offset in range(table.bucket_count):
+            index = (value + offset) % table.bucket_count
+            slot = table._slots[index]
+            if slot is None:
+                state = "empty"
+            elif slot is _TOMBSTONE:
+                state = "deleted"
+            elif isinstance(slot, _Entry):
+                state = "occupied"
+                if slot.key == key:
+                    found_index = index
+            else:
+                raise RuntimeError("linear probing table contains an unknown slot")
+            checked.append(f"{index} ({state})")
+            if found_index is not None or slot is None:
+                break
+
+        probe_path = " &rarr; ".join(item.split(" ", 1)[0] for item in checked)
+        hash_steps.append(f"<li>Start slot: {value}</li>")
+        hash_steps.append(
+            "<li>Probed slots: " + "; ".join(checked) + "</li>"
+        )
+        hash_steps.append(
+            f"<li>Probe path: {probe_path}</li>"
+        )
+        if found_index is not None:
+            hash_steps.append(f"<li>Found key at slot {found_index}.</li>")
+        return (
+            "<details><summary>Horner hash and probe path</summary>"
+            f"<ol>{''.join(hash_steps)}</ol></details>"
         )
 
     @staticmethod
