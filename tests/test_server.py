@@ -156,6 +156,41 @@ class ServerTests(unittest.TestCase):
         self.assertIn(b"Horner hash", body)
         self.assertIn(b"ord(", body)
 
+    def test_linear_table_escapes_url(self):
+        url = "https://example.com/?q=<zz>"
+        self.request(
+            "POST",
+            "/linear/shorten",
+            body=urlencode({"url": url}),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
+        status, _, body = self.request("GET", "/linear/table")
+
+        self.assertEqual(status, 200)
+        self.assertIn(b"&lt;zz&gt;", body)
+        self.assertNotIn(b"<zz>", body)
+
+    def test_linear_table_shows_empty_slots_and_probe_path(self):
+        self.request(
+            "POST",
+            "/linear/shorten",
+            body=urlencode({"url": "https://example.com/a"}),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        self.request(
+            "POST",
+            "/linear/shorten",
+            body=urlencode({"url": "https://example.com/i"}),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
+        status, _, body = self.request("GET", "/linear/table")
+
+        self.assertEqual(status, 200)
+        self.assertIn("비어 있음".encode(), body)
+        self.assertIn(b"0 &rarr; 1", body)
+
     def test_chaining_and_linear_short_codes_are_isolated(self):
         chaining_url = "https://example.com/chaining"
         linear_url = "https://example.com/linear"
