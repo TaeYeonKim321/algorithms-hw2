@@ -1,11 +1,23 @@
 import unittest
 
 from src.shortener import URLShortener
+from src.hash_table import HashTable
+from src.linear_probing_hash_table import LinearProbingHashTable
 
 
 class URLShortenerTests(unittest.TestCase):
+    table_type = "chaining"
+
     def setUp(self):
-        self.shortener = URLShortener()
+        self.shortener = URLShortener(table_type=self.table_type)
+
+    def test_selected_strategy_is_used_for_both_indexes(self):
+        expected_type = (
+            HashTable if self.table_type == "chaining" else LinearProbingHashTable
+        )
+
+        self.assertIsInstance(self.shortener._url_to_code, expected_type)
+        self.assertIsInstance(self.shortener._code_to_url, expected_type)
 
     def test_first_url_uses_zero_and_distinct_urls_get_distinct_codes(self):
         first_url = "https://example.com/first"
@@ -80,6 +92,22 @@ class URLShortenerTests(unittest.TestCase):
         code = self.shortener.shorten(url)
 
         self.assertEqual(self.shortener.expand(code), url)
+
+
+class LinearURLShortenerTests(URLShortenerTests):
+    table_type = "linear"
+
+
+class URLShortenerConfigurationTests(unittest.TestCase):
+    def test_default_strategy_uses_chaining(self):
+        shortener = URLShortener()
+
+        self.assertIsInstance(shortener._url_to_code, HashTable)
+        self.assertIsInstance(shortener._code_to_url, HashTable)
+
+    def test_unknown_strategy_is_rejected(self):
+        with self.assertRaises(ValueError):
+            URLShortener(table_type="unknown")
 
 
 if __name__ == "__main__":

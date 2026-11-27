@@ -4,15 +4,21 @@ from src.hash_table import HashTable
 
 
 class HashTableTests(unittest.TestCase):
+    table_class = HashTable
+    has_fixed_capacity = False
+
+    def make_table(self, *args, **kwargs):
+        return self.table_class(*args, **kwargs)
+
     def test_empty_table_and_empty_string_key(self):
-        table = HashTable()
+        table = self.make_table()
         self.assertEqual(len(table), 0)
         table.set("", "empty")
         self.assertEqual(table.get(""), "empty")
         self.assertEqual(len(table), 1)
 
     def test_colliding_keys_are_stored_and_retrieved_independently(self):
-        table = HashTable(bucket_count=8, max_load=None)
+        table = self.make_table(bucket_count=8, max_load=None)
         # These single-character keys have the same bucket with the specified
         # Horner hash and an initial bucket count of 8.
         keys = ("a", "i", "q")
@@ -23,7 +29,7 @@ class HashTableTests(unittest.TestCase):
         self.assertEqual(len(table), 3)
 
     def test_setting_existing_key_replaces_its_value_without_growing(self):
-        table = HashTable()
+        table = self.make_table()
         table.set("key", "first")
         table.set("key", "second")
 
@@ -31,7 +37,7 @@ class HashTableTests(unittest.TestCase):
         self.assertEqual(len(table), 1)
 
     def test_missing_get_and_delete_raise_key_error(self):
-        table = HashTable()
+        table = self.make_table()
         with self.assertRaises(KeyError):
             table.get("missing")
         with self.assertRaises(KeyError):
@@ -39,7 +45,7 @@ class HashTableTests(unittest.TestCase):
         self.assertEqual(len(table), 0)
 
     def test_delete_removes_key_and_decrements_length(self):
-        table = HashTable()
+        table = self.make_table()
         table.set("key", "value")
         table.delete("key")
 
@@ -48,7 +54,7 @@ class HashTableTests(unittest.TestCase):
             table.get("key")
 
     def test_resize_happens_only_after_load_factor_exceeds_limit(self):
-        table = HashTable(bucket_count=8, max_load=0.75)
+        table = self.make_table(bucket_count=8, max_load=0.75)
         for number in range(6):
             table.set(f"key-{number}", str(number))
         self.assertEqual(table.bucket_count, 8)
@@ -61,7 +67,7 @@ class HashTableTests(unittest.TestCase):
         self.assertEqual(table.get("key-6"), "6")
 
     def test_delete_does_not_shrink_the_table(self):
-        table = HashTable(bucket_count=8, max_load=0.75)
+        table = self.make_table(bucket_count=8, max_load=0.75)
         for number in range(7):
             table.set(f"key-{number}", str(number))
         self.assertEqual(table.bucket_count, 16)
@@ -71,17 +77,18 @@ class HashTableTests(unittest.TestCase):
         self.assertEqual(len(table), 6)
 
     def test_none_max_load_disables_resizing(self):
-        table = HashTable(bucket_count=2, max_load=None)
-        for number in range(20):
+        table = self.make_table(bucket_count=2, max_load=None)
+        item_count = 2 if self.has_fixed_capacity else 20
+        for number in range(item_count):
             table.set(f"key-{number}", str(number))
 
         self.assertEqual(table.bucket_count, 2)
-        self.assertEqual(len(table), 20)
-        for number in range(20):
+        self.assertEqual(len(table), item_count)
+        for number in range(item_count):
             self.assertEqual(table.get(f"key-{number}"), str(number))
 
     def test_get_records_number_of_compared_nodes(self):
-        table = HashTable(bucket_count=8, max_load=None)
+        table = self.make_table(bucket_count=8, max_load=None)
         keys = ("a", "i", "q")
         for key in keys:
             table.set(key, key)
@@ -93,13 +100,13 @@ class HashTableTests(unittest.TestCase):
         self.assertEqual(sorted(comparisons), [1, 2, 3])
 
     def test_failed_get_in_empty_bucket_records_zero_comparisons(self):
-        table = HashTable()
+        table = self.make_table()
         with self.assertRaises(KeyError):
             table.get("missing")
         self.assertEqual(table.last_comparisons, 0)
 
     def test_set_and_delete_do_not_change_last_get_comparison_count(self):
-        table = HashTable()
+        table = self.make_table()
         table.set("key", "value")
         table.get("key")
         comparisons = table.last_comparisons
@@ -110,7 +117,7 @@ class HashTableTests(unittest.TestCase):
         self.assertEqual(table.last_comparisons, comparisons)
 
     def test_failed_get_in_nonempty_bucket_records_comparisons(self):
-        table = HashTable(bucket_count=8, max_load=None)
+        table = self.make_table(bucket_count=8, max_load=None)
         for key in ("a", "i", "q"):
             table.set(key, key)
 
@@ -122,7 +129,7 @@ class HashTableTests(unittest.TestCase):
         keys = ("a", "i", "q")
         for deleted in keys:
             with self.subTest(deleted=deleted):
-                table = HashTable(bucket_count=8, max_load=None)
+                table = self.make_table(bucket_count=8, max_load=None)
                 for key in keys:
                     table.set(key, key)
 
