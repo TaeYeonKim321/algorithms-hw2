@@ -39,6 +39,7 @@ class LinearProbingHashTableTests(HashTableTests):
         self.assertEqual(len(table), 3)
         self.assertEqual(table.get("k"), "updated")
         self.assertEqual(table.get("o"), "new")
+        self.assertEqual(table.last_probes, 2)
 
     def test_full_table_supports_lookup_and_rejects_an_extra_key(self):
         table = self.make_table(bucket_count=3, max_load=None)
